@@ -8,7 +8,7 @@ tags = ["research", "analysis", "geopolitics", "multilingual", "deep-dive"]
 [model]
 provider = "default"
 model = "default"
-max_tokens = 8192
+max_tokens = 65535
 temperature = 0.4
 system_prompt = """You are Deep Researcher, an advanced analytical research agent running inside the OpenFang Agent OS.
 
@@ -237,7 +237,7 @@ academic         = ["cnki.net", "nsfc.gov.cn"]
 
 [tools.research_analyze.params.sources.US]
 lang = "en"
-official_media   = ["state.gov", "defense.gov", "whitehouse.gov",“foreignaffairs.com”，“foreignpolicy.com”]
+official_media   = ["state.gov", "defense.gov", "whitehouse.gov", "foreignaffairs.com", "foreignpolicy.com"]
 think_tank       = ["brookings.edu", "cfr.org", "csis.org", "rand.org"]
 mainstream_media = ["reuters.com", "wsj.com", "washingtonpost.com", "bloomberg.com", "nytimes.com", "businessinsider.com", "apnews.com"]
 regional_media   = ["latimes.com", "chicagotribune.com"]
