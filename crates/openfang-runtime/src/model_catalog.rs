@@ -7,12 +7,11 @@ use openfang_types::model_catalog::{
     AuthStatus, ModelCatalogEntry, ModelTier, ProviderInfo, AI21_BASE_URL, ANTHROPIC_BASE_URL,
     BEDROCK_BASE_URL, CEREBRAS_BASE_URL, CHUTES_BASE_URL, COHERE_BASE_URL, DEEPSEEK_BASE_URL,
     FIREWORKS_BASE_URL, GEMINI_BASE_URL, GITHUB_COPILOT_BASE_URL, GROQ_BASE_URL,
-    HUGGINGFACE_BASE_URL, LMSTUDIO_BASE_URL, MINIMAX_BASE_URL, MISTRAL_BASE_URL,
-    MOONSHOT_BASE_URL, OLLAMA_BASE_URL, LEMONADE_BASE_URL, OPENAI_BASE_URL, OPENROUTER_BASE_URL,
-    PERPLEXITY_BASE_URL, QIANFAN_BASE_URL, QWEN_BASE_URL, REPLICATE_BASE_URL,
-    SAMBANOVA_BASE_URL, TOGETHER_BASE_URL, VENICE_BASE_URL, VLLM_BASE_URL,
-    VOLCENGINE_BASE_URL, VOLCENGINE_CODING_BASE_URL, XAI_BASE_URL, ZAI_BASE_URL,
-    ZAI_CODING_BASE_URL, ZHIPU_BASE_URL, ZHIPU_CODING_BASE_URL,
+    HUGGINGFACE_BASE_URL, LEMONADE_BASE_URL, LMSTUDIO_BASE_URL, MINIMAX_BASE_URL, MISTRAL_BASE_URL,
+    MOONSHOT_BASE_URL, OLLAMA_BASE_URL, OPENAI_BASE_URL, OPENROUTER_BASE_URL, PERPLEXITY_BASE_URL,
+    QIANFAN_BASE_URL, QWEN_BASE_URL, REPLICATE_BASE_URL, SAMBANOVA_BASE_URL, TOGETHER_BASE_URL,
+    VENICE_BASE_URL, VLLM_BASE_URL, VOLCENGINE_BASE_URL, VOLCENGINE_CODING_BASE_URL, XAI_BASE_URL,
+    ZAI_BASE_URL, ZAI_CODING_BASE_URL, ZHIPU_BASE_URL, ZHIPU_CODING_BASE_URL,
 };
 use std::collections::HashMap;
 
@@ -59,12 +58,11 @@ impl ModelCatalog {
             // Claude Code is special: no API key needed, but we probe for CLI
             // installation so the dashboard shows "Configured" vs "Not Installed".
             if provider.id == "claude-code" {
-                provider.auth_status =
-                    if crate::drivers::claude_code::claude_code_available() {
-                        AuthStatus::Configured
-                    } else {
-                        AuthStatus::Missing
-                    };
+                provider.auth_status = if crate::drivers::claude_code::claude_code_available() {
+                    AuthStatus::Configured
+                } else {
+                    AuthStatus::Missing
+                };
                 continue;
             }
 
@@ -80,8 +78,7 @@ impl ModelCatalog {
             let has_fallback = match provider.id.as_str() {
                 "gemini" => std::env::var("GOOGLE_API_KEY").is_ok(),
                 "codex" => {
-                    std::env::var("OPENAI_API_KEY").is_ok()
-                        || read_codex_credential().is_some()
+                    std::env::var("OPENAI_API_KEY").is_ok() || read_codex_credential().is_some()
                 }
                 // claude-code is handled above (before key_required check)
                 _ => false,
@@ -1502,7 +1499,7 @@ fn builtin_models() -> Vec<ModelCatalogEntry> {
             aliases: vec![],
         },
         // ══════════════════════════════════════════════════════════════
-        // OpenRouter (10) — pass-through models using real upstream IDs
+        // OpenRouter (20) — pass-through models using real upstream IDs
         // ══════════════════════════════════════════════════════════════
         ModelCatalogEntry {
             id: "openrouter/google/gemini-2.5-flash".into(),
@@ -1644,6 +1641,146 @@ fn builtin_models() -> Vec<ModelCatalogEntry> {
             supports_streaming: true,
             aliases: vec![],
         },
+        ModelCatalogEntry {
+            id: "openrouter/minimax/minimax-m2.5".into(),
+            display_name: "MiniMax M2.5 (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Smart,
+            context_window: 196_608,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.27,
+            output_cost_per_m: 0.95,
+            supports_tools: true,
+            supports_vision: false,
+            supports_streaming: true,
+            aliases: vec![],
+        },
+        ModelCatalogEntry {
+            id: "openrouter/google/gemini-3-flash-preview".into(),
+            display_name: "Gemini 3 Flash Preview (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Smart,
+            context_window: 1_048_576,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.50,
+            output_cost_per_m: 3.00,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec![],
+        },
+        ModelCatalogEntry {
+            id: "openrouter/deepseek/deepseek-v3.2".into(),
+            display_name: "DeepSeek V3.2 (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Smart,
+            context_window: 163_840,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.25,
+            output_cost_per_m: 0.40,
+            supports_tools: true,
+            supports_vision: false,
+            supports_streaming: true,
+            aliases: vec![],
+        },
+        ModelCatalogEntry {
+            id: "openrouter/anthropic/claude-opus-4.6".into(),
+            display_name: "Claude Opus 4.6 (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Frontier,
+            context_window: 1_000_000,
+            max_output_tokens: 128_000,
+            input_cost_per_m: 5.00,
+            output_cost_per_m: 25.00,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec![],
+        },
+        ModelCatalogEntry {
+            id: "openrouter/anthropic/claude-sonnet-4.6".into(),
+            display_name: "Claude Sonnet 4.6 (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Smart,
+            context_window: 1_000_000,
+            max_output_tokens: 128_000,
+            input_cost_per_m: 3.00,
+            output_cost_per_m: 15.00,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec![],
+        },
+        ModelCatalogEntry {
+            id: "openrouter/moonshotai/kimi-k2.5".into(),
+            display_name: "Kimi K2.5 (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Smart,
+            context_window: 262_144,
+            max_output_tokens: 65_535,
+            input_cost_per_m: 0.45,
+            output_cost_per_m: 2.20,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec![],
+        },
+        ModelCatalogEntry {
+            id: "openrouter/openai/gpt-5.3-codex".into(),
+            display_name: "GPT-5.3-Codex (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Frontier,
+            context_window: 400_000,
+            max_output_tokens: 128_000,
+            input_cost_per_m: 1.75,
+            output_cost_per_m: 14.00,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec![],
+        },
+        ModelCatalogEntry {
+            id: "openrouter/z-ai/glm-5".into(),
+            display_name: "GLM 5 (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Smart,
+            context_window: 202_752,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 0.80,
+            output_cost_per_m: 2.56,
+            supports_tools: true,
+            supports_vision: false,
+            supports_streaming: true,
+            aliases: vec![],
+        },
+        ModelCatalogEntry {
+            id: "openrouter/google/gemini-3.1-pro-preview".into(),
+            display_name: "Gemini 3.1 Pro Preview (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Frontier,
+            context_window: 1_048_576,
+            max_output_tokens: 65_536,
+            input_cost_per_m: 2.00,
+            output_cost_per_m: 12.00,
+            supports_tools: true,
+            supports_vision: true,
+            supports_streaming: true,
+            aliases: vec![],
+        },
+        ModelCatalogEntry {
+            id: "openrouter/qwen/qwen3-32b".into(),
+            display_name: "Qwen3 32B (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Balanced,
+            context_window: 40_960,
+            max_output_tokens: 40_960,
+            input_cost_per_m: 0.08,
+            output_cost_per_m: 0.24,
+            supports_tools: true,
+            supports_vision: false,
+            supports_streaming: true,
+            aliases: vec![],
+        },
         // OpenRouter free models
         ModelCatalogEntry {
             id: "openrouter/google/gemma-2-9b-it:free".into(),
@@ -1725,6 +1862,20 @@ fn builtin_models() -> Vec<ModelCatalogEntry> {
             input_cost_per_m: 0.0,
             output_cost_per_m: 0.0,
             supports_tools: false,
+            supports_vision: false,
+            supports_streaming: true,
+            aliases: vec![],
+        },
+        ModelCatalogEntry {
+            id: "openrouter/stepfun/step-3.5-flash:free".into(),
+            display_name: "Step 3.5 Flash Free (OpenRouter)".into(),
+            provider: "openrouter".into(),
+            tier: ModelTier::Fast,
+            context_window: 256_000,
+            max_output_tokens: 256_000,
+            input_cost_per_m: 0.0,
+            output_cost_per_m: 0.0,
+            supports_tools: true,
             supports_vision: false,
             supports_streaming: true,
             aliases: vec![],
@@ -3527,10 +3678,7 @@ mod tests {
     #[test]
     fn test_resolve_alias() {
         let catalog = ModelCatalog::new();
-        assert_eq!(
-            catalog.resolve_alias("sonnet"),
-            Some("claude-sonnet-4-6")
-        );
+        assert_eq!(catalog.resolve_alias("sonnet"), Some("claude-sonnet-4-6"));
         assert_eq!(
             catalog.resolve_alias("haiku"),
             Some("claude-haiku-4-5-20251001")
