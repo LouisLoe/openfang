@@ -6180,6 +6180,8 @@ pub async fn mcp_http(
                 None
             },
             Some(&*state.kernel.process_manager),
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
 

@@ -123,6 +123,8 @@ pub async fn execute_tool(
     tts_engine: Option<&crate::tts::TtsEngine>,
     docker_config: Option<&openfang_types::config::DockerSandboxConfig>,
     process_manager: Option<&crate::process_manager::ProcessManager>,
+    tool_params: Option<&std::collections::HashMap<String, serde_json::Value>>,
+    llm_driver: Option<std::sync::Arc<dyn crate::llm_driver::LlmDriver>>,
 ) -> ToolResult {
     // Normalize the tool name through compat mappings so LLM-hallucinated aliases
     // (e.g. "fs-write" → "file_write") resolve to the canonical OpenFang name.
@@ -216,6 +218,9 @@ pub async fn execute_tool(
                 tool_web_search_legacy(input).await
             }
         }
+
+        // Research analysis tool
+        "research_analyze" => crate::research_tool::execute(input, tool_params, llm_driver).await,
 
         // Shell tool — metacharacter check + exec policy + taint check
         "shell_exec" => {
@@ -586,6 +591,20 @@ pub fn builtin_tool_definitions() -> Vec<ToolDefinition> {
                     "max_results": { "type": "integer", "description": "Maximum number of results to return (default: 5, max: 20)" }
                 },
                 "required": ["query"]
+            }),
+        },
+        // --- Research tool ---
+        ToolDefinition {
+            name: "research_analyze".to_string(),
+            description: "Decompose a research question into key points, infer user intent, identify stakeholders and perspectives, detect missing country coverage, and generate multi-language search queries. Uses the agent's source_policy config to drive query generation and country bootstrap detection.".to_string(),
+            input_schema: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "question": { "type": "string", "description": "The research question to analyze" },
+                    "context": { "type": "string", "description": "Optional context about why the user is asking" },
+                    "depth": { "type": "string", "enum": ["quick", "standard", "deep"], "description": "Analysis depth (default: standard)" }
+                },
+                "required": ["question"]
             }),
         },
         // --- Shell tool ---
@@ -3288,6 +3307,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         assert!(result.is_error, "Expected error but got: {}", result.content);
@@ -3313,6 +3334,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         assert!(result.is_error);
@@ -3339,6 +3362,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         assert!(result.is_error);
@@ -3365,6 +3390,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         assert!(result.is_error);
@@ -3391,6 +3418,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         // web_search now attempts a real fetch; may succeed or fail depending on network
@@ -3417,6 +3446,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         assert!(result.is_error);
@@ -3443,6 +3474,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         assert!(result.is_error);
@@ -3470,6 +3503,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         assert!(result.is_error);
@@ -3501,6 +3536,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         // Should fail for file-not-found, NOT for permission denied
@@ -3539,6 +3576,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         // Should NOT be "Permission denied" — it should normalize to file_write
@@ -3572,6 +3611,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         assert!(result.is_error);
@@ -3741,6 +3782,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         assert!(result.is_error);
@@ -3786,6 +3829,8 @@ mod tests {
             None, // tts_engine
             None, // docker_config
             None, // process_manager
+            None, // tool_params
+            None, // llm_driver
         )
         .await;
         assert!(result.is_error);

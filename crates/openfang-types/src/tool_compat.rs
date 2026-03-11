@@ -25,6 +25,9 @@ pub fn map_tool_name(openclaw_name: &str) -> Option<&'static str> {
         "sessions_list" | "agents_list" | "agent_list" => Some("agent_list"),
         "sessions_spawn" => Some("agent_send"),
 
+        // Research tool aliases
+        "ResearchAnalyze" | "research-analyze" | "analyze_research" => Some("research_analyze"),
+
         // LLM-hallucinated aliases (fs-* style names)
         "fs-read" | "fs_read" | "fsRead" | "readFile" => Some("file_read"),
         "fs-write" | "fs_write" | "fsWrite" | "writeFile" => Some("file_write"),
@@ -77,6 +80,7 @@ pub fn is_known_openfang_tool(name: &str) -> bool {
             | "schedule_delete"
             | "image_analyze"
             | "location_get"
+            | "research_analyze"
     )
 }
 

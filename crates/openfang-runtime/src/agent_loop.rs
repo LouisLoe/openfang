@@ -641,6 +641,9 @@ pub async fn run_agent_loop(
                     // Resolve effective exec policy (per-agent override or global)
                     let effective_exec_policy = manifest.exec_policy.as_ref();
 
+                    // Extract per-tool params from manifest (e.g. source_policy for research_analyze)
+                    let current_tool_params = manifest.tools.get(&tool_call.name).map(|tc| &tc.params);
+
                     // Timeout-wrapped execution
                     let result = match tokio::time::timeout(
                         Duration::from_secs(TOOL_TIMEOUT_SECS),
@@ -666,6 +669,8 @@ pub async fn run_agent_loop(
                             tts_engine,
                             docker_config,
                             process_manager,
+                            current_tool_params,
+                            Some(driver.clone()),
                         ),
                     )
                     .await
@@ -1596,6 +1601,9 @@ pub async fn run_agent_loop_streaming(
                     // Resolve effective exec policy (per-agent override or global)
                     let effective_exec_policy = manifest.exec_policy.as_ref();
 
+                    // Extract per-tool params from manifest (e.g. source_policy for research_analyze)
+                    let current_tool_params = manifest.tools.get(&tool_call.name).map(|tc| &tc.params);
+
                     // Timeout-wrapped execution
                     let result = match tokio::time::timeout(
                         Duration::from_secs(TOOL_TIMEOUT_SECS),
@@ -1621,6 +1629,8 @@ pub async fn run_agent_loop_streaming(
                             tts_engine,
                             docker_config,
                             process_manager,
+                            current_tool_params,
+                            Some(driver.clone()),
                         ),
                     )
                     .await

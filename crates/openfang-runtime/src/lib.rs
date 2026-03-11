@@ -33,6 +33,7 @@ pub mod model_catalog;
 pub mod process_manager;
 pub mod prompt_builder;
 pub mod provider_health;
+pub mod research_tool;
 pub mod python_runtime;
 pub mod reply_directives;
 pub mod retry;

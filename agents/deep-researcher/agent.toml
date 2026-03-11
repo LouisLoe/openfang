@@ -1,0 +1,443 @@
+name = "deep-researcher"
+version = "0.1.0"
+description = "Deep research agent. Decomposes questions, identifies stakeholders and perspectives, conducts multi-language web research from credible sources across 24+ countries, and synthesizes balanced analytical reports."
+author = "openfang"
+module = "builtin:chat"
+tags = ["research", "analysis", "geopolitics", "multilingual", "deep-dive"]
+
+[model]
+provider = "default"
+model = "default"
+max_tokens = 8192
+temperature = 0.4
+system_prompt = """You are Deep Researcher, an advanced analytical research agent running inside the OpenFang Agent OS.
+
+You specialize in rigorous, multi-perspective research on complex topics, especially social issues including geopolitics, international economics, ideology, public opinion, and social conflicts.
+
+══════════════════════════════════════════════════════════════
+RESEARCH WORKFLOW (follow these phases strictly in order)
+══════════════════════════════════════════════════════════════
+
+## PHASE 1: QUESTION ANALYSIS
+Call `research_analyze` with the user's question. Read the structured output carefully:
+- Key points decomposition
+- User intent and purpose
+- Topic classification (social issue? controversial?)
+- Stakeholders with their primary languages
+- Multiple perspectives that exist
+- Country coverage status (which countries have sources, which need bootstrap)
+- Pre-generated multi-language search queries with priority domains
+
+## PHASE 2: COUNTRY BOOTSTRAP (if needed)
+If the analysis indicates `bootstrap_required: true` for any country:
+1. For each missing country, use `web_search` to discover:
+   - Government/official news portals
+   - Major think tanks and policy institutes
+   - Top national media outlets
+   - Leading universities and research centers
+   - Notable public commentators (mark as opinion-only)
+2. You need at least 10 valid sources per country before proceeding.
+3. Use `memory_store` to save discovered sources for future use.
+4. If bootstrap fails (< 10 reachable sources), note this as a coverage limitation.
+
+## PHASE 3: MULTI-LANGUAGE TIERED SEARCH
+Execute searches using the 10/50 tiered strategy:
+
+**Round 1 — Top 10 sources per country:**
+- Use the `priority_domains` from the analysis output
+- Search in EACH stakeholder's native language
+- Use `web_search` with language-specific queries
+
+**Round 2+ — Expand if evidence insufficient:**
+- If Round 1 yields insufficient evidence, expand to top 20, then 30, 40, 50
+- Stop expanding as soon as evidence coverage is met:
+  * At least 3 source categories (official/think_tank/media)
+  * At least 2 languages
+  * At least 2 stakeholder perspectives
+  * At least 5 sourced claims with URLs and dates
+- If all 50 sources exhausted or fewer than 10 are reachable, enter
+  "low-coverage mode": supplement with international wire services
+  (Reuters, AP, AFP) and mark confidence ceiling as "medium"
+
+**For each promising result:**
+- Use `web_fetch` to read the full article, not just snippets
+- Extract key claims, data points, direct quotes
+- Note the source's perspective/bias and publication date
+
+## PHASE 4: CROSS-REFERENCE & VERIFY
+- Compare claims across sources from different stakeholder perspectives
+- Identify: consensus facts vs. disputed claims vs. information gaps
+- Flag propaganda or heavily biased framing from ANY side
+- KOL/influencer claims MUST be corroborated by at least 2 non-KOL sources
+  before being treated as evidence; otherwise label as "unverified opinion"
+
+## PHASE 5: SYNTHESIZE REPORT
+Structure your output as follows:
+
+### Executive Summary
+[2-3 sentence direct answer]
+
+### Key Points Decomposition
+[Numbered list of the question's core elements]
+
+### User Intent Analysis
+[Why the user likely asked this, what they need]
+
+### Multi-Perspective Analysis
+For each major stakeholder:
+- **[Stakeholder Name]** ([Country/Language])
+  - Position: ...
+  - Key arguments: ...
+  - Supporting evidence: ...
+  - Source: [URL, date, credibility tier]
+
+### Claim-Evidence Matrix
+| Claim | Status | Evidence Level | Sources (tier, lang) |
+|-------|--------|----------------|----------------------|
+
+### Divergence Matrix
+| Point of Conflict | Side A | Side B | Evidence Comparison |
+|-------------------|--------|--------|---------------------|
+
+### Temporal Layers
+- **Breaking/Current**: [events within 30 days]
+- **Recent Policy**: [within 6 months]
+- **Historical Context**: [background]
+
+### Source Credibility Assessment
+| Source | Country | Category | Tier | Language | Date |
+|--------|---------|----------|------|----------|------|
+
+### Confidence & Limitations
+- Overall confidence: high / medium / low
+- Coverage gaps: [countries/languages/perspectives not reached]
+- Source reachability issues: [any domains unreachable]
+- KOL claims pending corroboration: [list]
+
+### Full Source List
+[All URLs with language, date, tier, and country]
+
+══════════════════════════════════════════════════════════════
+CREDIBILITY TIER DEFINITIONS
+══════════════════════════════════════════════════════════════
+Tier 1: Government official statements, IGO reports (UN/WB/IMF), peer-reviewed research
+Tier 2: Major think tanks (Brookings, RAND, CSIS, Chatham House, SIPRI, CICIR, SWP, IFRI...)
+Tier 3: Major international/national media (Reuters, AP, BBC, NHK, Xinhua, TASS, Al Jazeera...)
+Tier 4: Regional media, specialized outlets
+Tier 5: Opinion/influencer — ONLY for sentiment analysis, NEVER as sole factual source
+
+══════════════════════════════════════════════════════════════
+CRITICAL RULES
+══════════════════════════════════════════════════════════════
+- NEVER present one side's narrative as objective truth
+- ALWAYS identify which stakeholder benefits from a particular framing
+- When sources conflict, present BOTH with evidence quality assessment
+- Distinguish FACTS from INTERPRETATIONS from OPINIONS
+- Flag your own uncertainty with confidence levels per claim
+- KOL content requires >= 2 non-KOL corroborating sources
+- If a country's reachable sources < 10, state this limitation explicitly
+- Use memory_store to save findings for future reference
+- For social issues: ALWAYS include at least 3 stakeholder perspectives
+"""
+
+[[fallback_models]]
+provider = "default"
+model = "default"
+
+[resources]
+max_llm_tokens_per_hour = 300000
+
+[capabilities]
+tools = ["research_analyze", "web_search", "web_fetch", "file_read", "file_write", "file_list", "memory_store", "memory_recall"]
+network = ["*"]
+memory_read = ["*"]
+memory_write = ["self.*", "shared.research.*"]
+
+# ══════════════════════════════════════════════════════════════
+# research_analyze tool configuration
+# ══════════════════════════════════════════════════════════════
+
+[tools.research_analyze.params.source_policy]
+version = "2026-03-seed"
+country_min_effective_sources = 10
+country_max_effective_sources = 50
+allow_kol = true
+kol_as_opinion_only = true
+kol_requires_corroboration = 2
+default_recency_days = 180
+
+[tools.research_analyze.params.source_policy.tiers]
+tier1 = ["official_media", "igo", "peer_reviewed"]
+tier2 = ["think_tank"]
+tier3 = ["mainstream_media"]
+tier4 = ["regional_media"]
+tier5 = ["influencer"]
+
+[tools.research_analyze.params.source_policy.search]
+primary_pool_size = 10
+expand_steps = [20, 30, 40, 50]
+min_reachable_sources_for_normal_mode = 10
+stop_if_evidence_met = true
+max_attempts_per_source = 2
+reachability_ttl_hours = 24
+
+[tools.research_analyze.params.source_policy.evidence_threshold]
+min_source_categories = 3
+min_languages = 2
+min_stakeholder_perspectives = 2
+min_sourced_claims = 5
+
+[tools.research_analyze.params.source_policy.bootstrap]
+auto_bootstrap_unknown_countries = true
+min_required_sources = 10
+required_categories = ["official_media", "think_tank", "mainstream_media", "academic"]
+provisional_ttl_days = 30
+max_bootstrap_minutes = 8
+allow_analysis_before_bootstrap = false
+confidence_ceiling_when_provisional = "medium"
+
+[tools.research_analyze.params.source_policy.maintenance]
+target_max_sources = 50
+prune_strategy = "keep_top_trust_score"
+refresh_cadence = "monthly"
+event_triggered_refresh = true
+max_additions_per_run = 80
+max_deprecations_per_run = 30
+require_human_review_for = ["tier1", "tier2", "influencer"]
+
+[tools.research_analyze.params.source_policy.maintenance.scoring]
+min_trust_score = 0.65
+min_kol_score = 0.55
+penalize_repeated_false_claims = true
+penalize_anonymous_authorship = true
+
+[tools.research_analyze.params.source_policy.maintenance.deprecation]
+unreachable_days = 45
+inactive_days = 180
+false_info_strikes = 3
+
+# ══════════════════════════════════════════════════════════════
+# Credible source registry (seed, 24 countries)
+#
+# Format: tools.research_analyze.params.sources.<CC>
+#   Per country: lang, official_media, think_tank, mainstream_media,
+#                regional_media, influencer, academic
+#
+# Maintained via source_policy.maintenance rules
+# ══════════════════════════════════════════════════════════════
+
+[tools.research_analyze.params.sources.CN]
+lang = "zh"
+official_media   = ["xinhuanet.com", "people.com.cn"]
+think_tank       = ["cicir.ac.cn", "cass.cn"]
+mainstream_media = ["caixin.com", "globaltimes.cn"]
+regional_media   = ["thepaper.cn", "bjnews.com.cn"]
+influencer       = ["weibo.com/huxijin_gt", "x.com/kaifulee"]
+academic         = ["cnki.net", "nsfc.gov.cn"]
+
+[tools.research_analyze.params.sources.US]
+lang = "en"
+official_media   = ["state.gov", "defense.gov", "whitehouse.gov",“foreignaffairs.com”，“foreignpolicy.com”]
+think_tank       = ["brookings.edu", "cfr.org", "csis.org", "rand.org"]
+mainstream_media = ["reuters.com", "wsj.com", "washingtonpost.com", "bloomberg.com", "nytimes.com", "businessinsider.com", "apnews.com"]
+regional_media   = ["latimes.com", "chicagotribune.com"]
+influencer       = ["x.com/ianbremmer", "fareedzakaria.com"]
+academic         = ["nber.org", "jstor.org", "scholar.google.com"]
+
+[tools.research_analyze.params.sources.UK]
+lang = "en"
+official_media   = ["gov.uk", "parliament.uk"]
+think_tank       = ["chathamhouse.org", "rusi.org", "iiss.org"]
+mainstream_media = ["bbc.com", "ft.com", "theguardian.com"]
+regional_media   = ["scotsman.com", "walesonline.co.uk"]
+influencer       = ["x.com/timaborrett"]
+academic         = ["lse.ac.uk", "ox.ac.uk"]
+
+[tools.research_analyze.params.sources.CA]
+lang = "en"
+official_media   = ["canada.ca", "pm.gc.ca"]
+think_tank       = ["cdhowe.org", "irpp.org"]
+mainstream_media = ["cbc.ca", "theglobeandmail.com"]
+regional_media   = ["montrealgazette.com", "vancouversun.com"]
+influencer       = ["x.com/acoyne"]
+academic         = ["utoronto.ca", "mcgill.ca"]
+
+[tools.research_analyze.params.sources.FR]
+lang = "fr"
+official_media   = ["elysee.fr", "gouvernement.fr"]
+think_tank       = ["ifri.org", "iris-france.org"]
+mainstream_media = ["lemonde.fr", "france24.com"]
+regional_media   = ["ouest-france.fr", "ladepeche.fr"]
+influencer       = ["x.com/BrunoTertrais"]
+academic         = ["sciencespo.fr", "cnrs.fr"]
+
+[tools.research_analyze.params.sources.DE]
+lang = "de"
+official_media   = ["bundesregierung.de", "auswaertiges-amt.de"]
+think_tank       = ["swp-berlin.org", "dgap.org"]
+mainstream_media = ["dw.com", "spiegel.de", "faz.net"]
+regional_media   = ["abendblatt.de", "mz.de"]
+influencer       = ["x.com/CarloMasala1"]
+academic         = ["mpg.de", "degruyter.com"]
+
+[tools.research_analyze.params.sources.IT]
+lang = "it"
+official_media   = ["governo.it", "esteri.it"]
+think_tank       = ["iai.it", "ispionline.it"]
+mainstream_media = ["ansa.it", "repubblica.it"]
+regional_media   = ["ilsecoloxix.it", "gazzettadiparma.it"]
+influencer       = ["x.com/NathalieTocci"]
+academic         = ["unibo.it", "unimi.it"]
+
+[tools.research_analyze.params.sources.ES]
+lang = "es"
+official_media   = ["lamoncloa.gob.es", "exteriores.gob.es"]
+think_tank       = ["realinstitutoelcano.org"]
+mainstream_media = ["elpais.com", "efe.com"]
+regional_media   = ["lavanguardia.com", "elcorreo.com"]
+influencer       = ["x.com/jordipc"]
+academic         = ["csic.es", "uc3m.es"]
+
+[tools.research_analyze.params.sources.NL]
+lang = "nl"
+official_media   = ["government.nl", "rijksoverheid.nl"]
+think_tank       = ["clingendael.org", "hcss.nl"]
+mainstream_media = ["nrc.nl", "nos.nl"]
+regional_media   = ["parool.nl", "lc.nl"]
+influencer       = ["x.com/robdewijk"]
+academic         = ["uva.nl", "leidenuniv.nl"]
+
+[tools.research_analyze.params.sources.RU]
+lang = "ru"
+official_media   = ["mid.ru", "government.ru"]
+think_tank       = ["russiancouncil.ru", "imemo.ru"]
+mainstream_media = ["tass.ru", "kommersant.ru"]
+regional_media   = ["fontanka.ru", "74.ru"]
+influencer       = ["globalaffairs.ru"]
+academic         = ["hse.ru", "ranepa.ru"]
+
+[tools.research_analyze.params.sources.SA]
+lang = "ar"
+official_media   = ["spa.gov.sa"]
+think_tank       = ["kfcris.com"]
+mainstream_media = ["arabnews.com", "saudigazette.com.sa"]
+regional_media   = ["okaz.com.sa"]
+influencer       = ["x.com/aaborashed"]
+academic         = ["kau.edu.sa", "ksu.edu.sa"]
+
+[tools.research_analyze.params.sources.AE]
+lang = "ar"
+official_media   = ["wam.ae"]
+think_tank       = ["trendsresearch.org", "ecssr.ae"]
+mainstream_media = ["thenationalnews.com", "gulfnews.com"]
+regional_media   = ["khaleejtimes.com"]
+influencer       = ["x.com/SultanAlQassemi"]
+academic         = ["nyuad.nyu.edu"]
+
+[tools.research_analyze.params.sources.QA]
+lang = "ar"
+official_media   = ["mofa.gov.qa", "qna.org.qa"]
+think_tank       = ["dohainstitute.org"]
+mainstream_media = ["aljazeera.com", "aljazeera.net"]
+regional_media   = ["thepeninsulaqatar.com"]
+influencer       = ["x.com/MarwanBishara"]
+academic         = ["qu.edu.qa"]
+
+[tools.research_analyze.params.sources.IR]
+lang = "fa"
+official_media   = ["president.ir", "iribnews.ir"]
+think_tank       = ["ipis.ir"]
+mainstream_media = ["tehrantimes.com", "irib.ir"]
+regional_media   = ["isna.ir"]
+influencer       = ["x.com/FoadIzadi"]
+academic         = ["ut.ac.ir"]
+
+[tools.research_analyze.params.sources.IL]
+lang = "he"
+official_media   = ["gov.il", "mfa.gov.il"]
+think_tank       = ["inss.org.il", "jiss.org.il"]
+mainstream_media = ["haaretz.com", "jpost.com", "timesofisrael.com"]
+regional_media   = ["ynetnews.com"]
+influencer       = ["x.com/AnshelPfeffer"]
+academic         = ["tau.ac.il", "huji.ac.il"]
+
+[tools.research_analyze.params.sources.JP]
+lang = "ja"
+official_media   = ["kantei.go.jp", "mofa.go.jp"]
+think_tank       = ["jiia.or.jp", "nira.or.jp"]
+mainstream_media = ["nikkei.com", "asahi.com", "japantimes.co.jp"]
+regional_media   = ["okinawatimes.co.jp"]
+influencer       = ["x.com/observingjapan"]
+academic         = ["u-tokyo.ac.jp", "jstage.jst.go.jp"]
+
+[tools.research_analyze.params.sources.KR]
+lang = "ko"
+official_media   = ["korea.kr", "mofa.go.kr"]
+think_tank       = ["ifans.go.kr", "kdi.re.kr"]
+mainstream_media = ["yonhapnews.co.kr", "joongang.co.kr"]
+regional_media   = ["busan.com"]
+influencer       = ["x.com/duyeonkim"]
+academic         = ["snu.ac.kr", "korea.ac.kr"]
+
+[tools.research_analyze.params.sources.KP]
+lang = "ko"
+official_media   = ["kcna.kp", "rodong.rep.kp"]
+think_tank       = ["38north.org", "stimson.org"]
+mainstream_media = ["kcna.kp"]
+regional_media   = []
+influencer       = []
+academic         = ["38north.org"]
+
+[tools.research_analyze.params.sources.SG]
+lang = "en"
+official_media   = ["gov.sg", "mfa.gov.sg"]
+think_tank       = ["rsis.edu.sg", "iseas.edu.sg"]
+mainstream_media = ["straitstimes.com", "channelnewsasia.com"]
+regional_media   = ["todayonline.com"]
+influencer       = ["x.com/BilahariK"]
+academic         = ["nus.edu.sg", "ntu.edu.sg"]
+
+[tools.research_analyze.params.sources.ID]
+lang = "id"
+official_media   = ["setneg.go.id", "kemlu.go.id"]
+think_tank       = ["csis.or.id"]
+mainstream_media = ["thejakartapost.com", "kompas.com"]
+regional_media   = ["jawapos.com"]
+influencer       = ["x.com/dewiananta"]
+academic         = ["ui.ac.id", "ugm.ac.id"]
+
+[tools.research_analyze.params.sources.IN]
+lang = "hi"
+official_media   = ["pib.gov.in", "mea.gov.in"]
+think_tank       = ["orfonline.org", "vivekananda.org"]
+mainstream_media = ["thehindu.com", "indianexpress.com", "hindustantimes.com"]
+regional_media   = ["deccanherald.com"]
+influencer       = ["x.com/CRajaMohan"]
+academic         = ["jnu.ac.in", "iisc.ac.in"]
+
+[tools.research_analyze.params.sources.PK]
+lang = "ur"
+official_media   = ["pid.gov.pk", "mofa.gov.pk"]
+think_tank       = ["issi.org.pk", "ips.org.pk"]
+mainstream_media = ["dawn.com", "thenews.com.pk"]
+regional_media   = ["tribune.com.pk"]
+influencer       = ["x.com/husaboretti"]
+academic         = ["lums.edu.pk", "qau.edu.pk"]
+
+[tools.research_analyze.params.sources.TR]
+lang = "tr"
+official_media   = ["tccb.gov.tr", "mfa.gov.tr"]
+think_tank       = ["setav.org", "tepav.org.tr"]
+mainstream_media = ["aa.com.tr", "hurriyetdailynews.com"]
+regional_media   = ["dailysabah.com"]
+influencer       = ["x.com/siaboretti"]
+academic         = ["boun.edu.tr", "metu.edu.tr"]
+
+[tools.research_analyze.params.sources.MX]
+lang = "es"
+official_media   = ["gob.mx", "sre.gob.mx"]
+think_tank       = ["comexi.org", "imco.org.mx"]
+mainstream_media = ["eluniversal.com.mx", "milenio.com"]
+regional_media   = ["elnorte.com"]
+influencer       = ["x.com/leozuckermann"]
+academic         = ["unam.mx", "colmex.mx"]

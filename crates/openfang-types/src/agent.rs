@@ -267,9 +267,9 @@ impl Default for ResourceQuota {
             max_tool_calls_per_minute: 60,
             max_llm_tokens_per_hour: 1_000_000,
             max_network_bytes_per_hour: 100 * 1024 * 1024, // 100 MB
-            max_cost_per_hour_usd: 0.0, // unlimited by default
-            max_cost_per_day_usd: 0.0,   // unlimited
-            max_cost_per_month_usd: 0.0, // unlimited
+            max_cost_per_hour_usd: 0.0,                    // unlimited by default
+            max_cost_per_day_usd: 0.0,                     // unlimited
+            max_cost_per_month_usd: 0.0,                   // unlimited
         }
     }
 }
@@ -314,7 +314,13 @@ impl ToolProfile {
                 "shell_exec",
                 "web_fetch",
             ],
-            Self::Research => vec!["web_fetch", "web_search", "file_read", "file_write"],
+            Self::Research => vec![
+                "web_fetch",
+                "web_search",
+                "file_read",
+                "file_write",
+                "research_analyze",
+            ],
             Self::Messaging => vec!["agent_send", "agent_list", "memory_store", "memory_recall"],
             Self::Automation => vec![
                 "file_read",
@@ -804,7 +810,8 @@ mod tests {
         let tools = ToolProfile::Research.tools();
         assert!(tools.contains(&"web_fetch".to_string()));
         assert!(tools.contains(&"web_search".to_string()));
-        assert_eq!(tools.len(), 4);
+        assert!(tools.contains(&"research_analyze".to_string()));
+        assert_eq!(tools.len(), 5);
     }
 
     #[test]
