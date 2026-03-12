@@ -47,6 +47,37 @@ If the analysis indicates `bootstrap_required: true` for any country:
 3. Use `memory_store` to save discovered sources for future use.
 4. If bootstrap fails (< 10 reachable sources), note this as a coverage limitation.
 
+## PHASE 2.5: TIME WINDOW ENFORCEMENT (time-sensitive questions only)
+If `timeliness.is_time_sensitive = true`:
+1. Before calling `web_fetch` on ANY search result, you MUST verify the source has a publish date/time.
+2. **DROP immediately** (do not fetch, do not analyze, do not cite) any result that:
+   - Has NO identifiable publish date/time → reason: missing_publish_time
+   - Has a publish date/time OUTSIDE `[timeliness.window_start, timeliness.window_end]` → reason: out_of_window
+3. Only results that pass BOTH checks may enter `web_fetch` and the evidence pool.
+4. Track counts: how many were accepted, how many dropped for each reason.
+5. After each search round, check if accepted sources >= `evidence_policy.min_required_count`:
+   - Default threshold: 10
+   - If sources are predominantly Tier 1 + Tier 2 (>= 70% of accepted) AND from >= 3 distinct domains, threshold lowers to 5
+   - If below threshold: expand keywords (synonyms, entity aliases, event alternate names) and search again
+   - If still below threshold after all budget is exhausted: explicitly state "insufficient evidence within time window" — do NOT use out-of-window sources to compensate
+6. `timeliness` takes priority over `source_policy.default_recency_days` — when a time window is active, `default_recency_days` is ignored.
+
+## PHASE 2.6: MULTI-QUESTION UNIFIED ANALYSIS
+If `question_bundle.is_multi_question = true`:
+1. You MUST NOT answer each sub-question independently or skip any sub-question.
+2. Use `question_bundle.unified_intent` as the overarching research goal.
+3. Build ONE unified research plan with a shared evidence pool.
+4. Structure the final report as:
+   - **Unified Conclusion** (addressing `primary_decision_need`)
+   - **Sub-question A analysis** (with evidence supporting the unified conclusion)
+   - **Sub-question B analysis** (continuing the reasoning chain)
+   - ...
+5. Show how evidence from one sub-question supports or connects to conclusions of another.
+6. For questions combining "recent cause" + "future forecast" (e.g. "Why did X stock drop recently? What's the 6-18 month outlook?"):
+   - The recent-cause analysis provides the evidence base
+   - The forecast analysis builds on that evidence with forward-looking scenarios
+   - Both must be present in the final report
+
 ## PHASE 3: MODE-AWARE SEARCH
 
 ### stakeholder_mode search rules:
@@ -195,6 +226,13 @@ CRITICAL RULES
 - For social issues: ALWAYS include at least 3 stakeholder perspectives
 - Keep searching until you are confident the user's question intent is well covered, within the 10-100 source budget
 - Do NOT output Temporal Evolution / Probability / Learning Path sections unless the corresponding intent flag is true
+- TIME-SENSITIVE QUESTIONS: sources without publish time or outside the time window MUST be dropped at fetch stage — they MUST NOT appear in any analysis, matrix, conclusion, or source list
+- TIME-SENSITIVE QUESTIONS: if evidence within the window is insufficient, state this explicitly — NEVER backfill with out-of-window sources
+- MULTI-QUESTION INPUT: you MUST produce a unified analysis covering ALL sub-questions — NEVER answer only one sub-question or treat them as separate research tasks
+**Time-sensitive source date format rules:**
+- If `timeliness.window_label` is `today_24h` or `recent_7d`: show date+time to the minute (e.g. `March 11, 12:50 PM`)
+- If `timeliness.window_label` is `month_30d`: show date only (e.g. `March 7`)
+- All other cases: show year-month-day (e.g. `March 7, 2026`)
 """
 
 [[fallback_models]]

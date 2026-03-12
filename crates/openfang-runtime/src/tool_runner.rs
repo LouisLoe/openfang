@@ -596,13 +596,14 @@ pub fn builtin_tool_definitions() -> Vec<ToolDefinition> {
         // --- Research tool ---
         ToolDefinition {
             name: "research_analyze".to_string(),
-            description: "Dual-mode deep research analysis. Automatically selects stakeholder_mode (geopolitics, economics, social issues, stock markets — searches in each country's local language) or multi_hypothesis_mode (academic, engineering, philosophy, literature, arts, psychology, technology — searches in user_lang + en + zh + de). Returns: analysis_mode, question_type, comparison_required, intent_flags (needs_temporal_evolution, needs_probability, needs_learning_path), candidate_frames (2-4 viewpoints/solutions to investigate separately), search_strategy with mode-aware language policy, stakeholders, perspectives, country_coverage, and pre-generated search queries.".to_string(),
+            description: "Dual-mode deep research analysis with timeliness and multi-question support. Automatically selects stakeholder_mode (geopolitics, economics, social issues, stock markets — searches in each country's local language) or multi_hypothesis_mode (academic, engineering, philosophy, literature, arts, psychology, technology — searches in user_lang + en + zh + de). Detects time-sensitive questions and produces strict time windows; fuses multiple sub-questions into a unified research intent. Returns: analysis_mode, question_type, timeliness (time window for evidence filtering), question_bundle (unified intent across sub-questions), evidence_policy (dynamic threshold: 10 default, 5 for high-credibility), candidate_frames, search_strategy, stakeholders, perspectives, country_coverage, and pre-generated search queries.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "question": { "type": "string", "description": "The research question to analyze" },
                     "context": { "type": "string", "description": "Optional context about why the user is asking" },
-                    "depth": { "type": "string", "enum": ["quick", "standard", "deep"], "description": "Analysis depth (default: standard)" }
+                    "depth": { "type": "string", "enum": ["quick", "standard", "deep"], "description": "Analysis depth (default: standard)" },
+                    "user_timezone": { "type": "string", "description": "IANA timezone (e.g. Asia/Shanghai). Used for time-sensitive question window calculation. If omitted, inferred from user language." }
                 },
                 "required": ["question"]
             }),

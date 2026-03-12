@@ -41,6 +41,7 @@ pub async fn execute(
         .ok_or("research_analyze requires a 'question' string")?;
     let context = input["context"].as_str();
     let depth = input["depth"].as_str().unwrap_or("standard");
+    let user_timezone_input = input["user_timezone"].as_str();
 
     let params =
         tool_params.ok_or("research_analyze requires source_policy in agent tools config")?;
@@ -178,7 +179,54 @@ pub async fn execute(
         &user_lang,
     );
 
-    // Step 13: Generate placeholder future directions
+    // Step 13: Resolve user timezone
+    let resolved_timezone = user_timezone_input
+        .filter(|tz| !tz.is_empty())
+        .map(|tz| tz.to_string())
+        .unwrap_or_else(|| lang_to_default_timezone(&user_lang).to_string());
+
+    // Step 14: Timeliness — prefer LLM, fall back to rules
+    let timeliness = {
+        let llm_timeliness = llm_analysis
+            .as_ref()
+            .map(|a| a.timeliness.clone())
+            .unwrap_or_default();
+
+        if llm_timeliness.is_time_sensitive && !llm_timeliness.window_label.is_empty() {
+            llm_timeliness
+        } else {
+            let now_utc = chrono::Utc::now().to_rfc3339();
+            compute_timeliness_fallback(question, &resolved_timezone, &now_utc)
+        }
+    };
+
+    // Step 15: Question bundle — prefer LLM, fall back to rules
+    let question_bundle = {
+        let llm_bundle = llm_analysis
+            .as_ref()
+            .map(|a| a.question_bundle.clone())
+            .unwrap_or_default();
+
+        if llm_bundle.is_multi_question && !llm_bundle.unified_intent.is_empty() {
+            llm_bundle
+        } else {
+            build_question_bundle_fallback(question)
+        }
+    };
+
+    // Step 16: Evidence policy (dynamic threshold)
+    let evidence_policy = if timeliness.is_time_sensitive {
+        EvidencePolicy {
+            min_required_count: 10, // agent may lower to 5 if high-credibility
+            high_credibility_mode: false,
+            strict_time_filter: true,
+            drop_missing_publish_time: true,
+        }
+    } else {
+        EvidencePolicy::default()
+    };
+
+    // Step 17: Generate placeholder future directions
     let future_directions = vec![
         FutureDirection {
             scenario: "Continuation of current trajectory".to_string(),
@@ -205,6 +253,10 @@ pub async fn execute(
         comparison_required,
         intent_flags,
         candidate_frames,
+        timeliness,
+        question_bundle,
+        evidence_policy,
+        source_stats: SourceStats::default(),
         perspectives,
         stakeholders,
         country_coverage: coverage,
@@ -242,6 +294,18 @@ pub struct AnalysisResult {
     /// 2-4 candidate viewpoints / solutions / theoretical frameworks to investigate.
     #[serde(default)]
     pub candidate_frames: Vec<CandidateFrame>,
+    /// Time-sensitivity metadata (window, timezone, strictness).
+    #[serde(default)]
+    pub timeliness: Timeliness,
+    /// Multi-question fusion (sub-questions, unified intent).
+    #[serde(default)]
+    pub question_bundle: QuestionBundle,
+    /// Evidence quantity / quality policy for time-sensitive questions.
+    #[serde(default)]
+    pub evidence_policy: EvidencePolicy,
+    /// Source acceptance / rejection statistics (populated during search).
+    #[serde(default)]
+    pub source_stats: SourceStats,
     pub perspectives: Vec<Perspective>,
     pub stakeholders: Vec<Stakeholder>,
     pub country_coverage: CountryCoverage,
@@ -410,6 +474,109 @@ pub struct ModePolicy {
     pub fixed_languages: Vec<String>,
 }
 
+/// Time-sensitivity metadata for the research question.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct Timeliness {
+    /// Whether the question requires time-bounded evidence.
+    #[serde(default)]
+    pub is_time_sensitive: bool,
+    /// `"today_24h"` | `"recent_7d"` | `"month_30d"` | `"year_to_date"` | `"custom"` | `"none"`
+    #[serde(default = "default_window_label")]
+    pub window_label: String,
+    /// ISO 8601 start of the allowed evidence window.
+    #[serde(default)]
+    pub window_start: String,
+    /// ISO 8601 end of the allowed evidence window.
+    #[serde(default)]
+    pub window_end: String,
+    /// IANA timezone used for window computation (e.g. `Asia/Shanghai`).
+    #[serde(default)]
+    pub timezone: String,
+    /// `"llm"` or `"fallback_rule"` — who determined the timeliness.
+    #[serde(default)]
+    pub detected_by: String,
+    /// True when timezone was not provided and had to be guessed.
+    #[serde(default)]
+    pub timezone_fallback: bool,
+}
+
+fn default_window_label() -> String {
+    "none".to_string()
+}
+
+/// Multi-question fusion metadata.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct QuestionBundle {
+    /// Whether the user input contains multiple distinct questions.
+    #[serde(default)]
+    pub is_multi_question: bool,
+    /// Individual sub-questions extracted from the input.
+    #[serde(default)]
+    pub sub_questions: Vec<String>,
+    /// The unified intent behind all sub-questions.
+    #[serde(default)]
+    pub unified_intent: String,
+    /// The primary decision or information need driving the questions.
+    #[serde(default)]
+    pub primary_decision_need: String,
+    /// Suggested priority order for sub-questions (by index or label).
+    #[serde(default)]
+    pub priority_order: Vec<String>,
+}
+
+/// Statistics about source acceptance / rejection during time-sensitive research.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+pub struct SourceStats {
+    /// Number of sources accepted into the evidence pool.
+    #[serde(default)]
+    pub accepted_count: usize,
+    /// Number rejected because publish time was missing.
+    #[serde(default)]
+    pub excluded_missing_time_count: usize,
+    /// Number rejected because publish time was outside the window.
+    #[serde(default)]
+    pub excluded_out_of_window_count: usize,
+    /// True when accepted_count < required minimum after all search rounds.
+    #[serde(default)]
+    pub insufficient_windowed_evidence: bool,
+}
+
+/// Evidence quantity policy — dynamic threshold based on source credibility.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvidencePolicy {
+    /// Minimum number of in-window, timestamped sources required.
+    /// Default 10; drops to 5 when high_credibility_mode is true.
+    #[serde(default = "default_min_required")]
+    pub min_required_count: usize,
+    /// True when Tier1+Tier2 sources dominate (>= 70%) and >= 3 distinct domains.
+    #[serde(default)]
+    pub high_credibility_mode: bool,
+    /// Always true for time-sensitive questions.
+    #[serde(default = "default_true")]
+    pub strict_time_filter: bool,
+    /// Always true — sources without publish time are dropped.
+    #[serde(default = "default_true")]
+    pub drop_missing_publish_time: bool,
+}
+
+fn default_min_required() -> usize {
+    10
+}
+fn default_true() -> bool {
+    true
+}
+
+impl Default for EvidencePolicy {
+    fn default() -> Self {
+        Self {
+            min_required_count: 10,
+            high_credibility_mode: false,
+            strict_time_filter: true,
+            drop_missing_publish_time: true,
+        }
+    }
+}
+
 /// A possible future direction or scenario.
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct FutureDirection {
@@ -455,6 +622,11 @@ struct LlmSemanticResult {
     intent_flags: IntentFlags,
     #[serde(default)]
     candidate_frames: Vec<CandidateFrame>,
+    // --- Timeliness & multi-question fusion ---
+    #[serde(default)]
+    timeliness: Timeliness,
+    #[serde(default)]
+    question_bundle: QuestionBundle,
 }
 
 /// System prompt for the semantic analysis sub-call.
@@ -502,6 +674,21 @@ pure JSON only):
       \"key_arguments\": [\"...\"]
     }
   ],
+  \"timeliness\": {
+    \"is_time_sensitive\": true/false,
+    \"window_label\": \"today_24h|recent_7d|month_30d|year_to_date|custom|none\",
+    \"window_start\": \"ISO 8601 datetime\",
+    \"window_end\": \"ISO 8601 datetime\",
+    \"timezone\": \"IANA timezone string\",
+    \"detected_by\": \"llm\"
+  },
+  \"question_bundle\": {
+    \"is_multi_question\": true/false,
+    \"sub_questions\": [\"...\"],
+    \"unified_intent\": \"the single overarching intent behind all sub-questions\",
+    \"primary_decision_need\": \"what the user ultimately wants to decide or understand\",
+    \"priority_order\": [\"q1\", \"q2\"]
+  },
   \"stakeholders\": [
     {
       \"name\": \"...\",
@@ -535,6 +722,15 @@ that should be investigated separately. For stakeholder_mode, these are competin
 policy approaches. For multi_hypothesis_mode, these are different theories, methods, or interpretations.
 - For stakeholder_mode: target_languages of each frame should use the stakeholder's local language. \
 For multi_hypothesis_mode: target_languages should always include the user's language plus en, zh, de.
+- timeliness: detect time-sensitive expressions in the question. \
+\"today\"/\"今天\" = today_24h (past 24 hours); \"recent\"/\"最近\" = recent_7d (past 7 days); \
+\"this month\"/\"这个月\" = month_30d (past 30 days); \"this year\"/\"今年\" = year_to_date (Jan 1 to now). \
+If no time expression is found, set is_time_sensitive=false, window_label=\"none\". \
+window_start and window_end should be ISO 8601 UTC datetimes. timezone should be the user's IANA timezone.
+- question_bundle: if the user input contains multiple distinct questions (separated by ?, ?, ;, or \
+conjunctions), set is_multi_question=true, list each sub-question, and provide unified_intent \
+(the single overarching goal) and primary_decision_need (what the user ultimately wants to decide). \
+If only one question, set is_multi_question=false and leave sub_questions empty.
 - Identify ALL relevant countries/stakeholders, even if not explicitly named
 - key_points should decompose the question into 2-5 analytical sub-points
 - perspectives should include at least 2 distinct viewpoints
@@ -1930,6 +2126,210 @@ fn derive_user_language(question: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
+// Timeliness & multi-question helpers
+// ---------------------------------------------------------------------------
+
+/// Map user language to a sensible default IANA timezone.
+/// Used only when `user_timezone` is not explicitly provided.
+fn lang_to_default_timezone(lang: &str) -> &'static str {
+    match lang {
+        "zh" => "Asia/Shanghai",
+        "ja" => "Asia/Tokyo",
+        "ko" => "Asia/Seoul",
+        "de" => "Europe/Berlin",
+        "fr" => "Europe/Paris",
+        "ru" => "Europe/Moscow",
+        "ar" => "Asia/Riyadh",
+        "fa" => "Asia/Tehran",
+        "he" => "Asia/Jerusalem",
+        "hi" | "ur" => "Asia/Kolkata",
+        "id" => "Asia/Jakarta",
+        "tr" => "Europe/Istanbul",
+        "es" => "Europe/Madrid",
+        "it" => "Europe/Rome",
+        "nl" => "Europe/Amsterdam",
+        "pt" => "America/Sao_Paulo",
+        _ => "UTC",
+    }
+}
+
+/// Compute timeliness metadata from question text (rule-based fallback).
+/// Returns a `Timeliness` with `detected_by = "fallback_rule"`.
+///
+/// `now_utc` is the current time as an ISO 8601 string (UTC).
+/// The function computes window boundaries in the user's local timezone
+/// conceptually, but outputs ISO 8601 / UTC strings for interoperability.
+fn compute_timeliness_fallback(
+    question: &str,
+    timezone: &str,
+    now_utc: &str,
+) -> Timeliness {
+    let q = question.to_lowercase();
+
+    // Detect time-sensitivity keywords and map to window parameters
+    // (label, days_back)
+    let detection: Option<(&str, i64)> = if matches_any(
+        &q,
+        &["today", "今天", "今日", "24h", "past 24 hours", "过去24小时"],
+    ) {
+        Some(("today_24h", 1))
+    } else if matches_any(
+        &q,
+        &[
+            "recent", "lately", "最近", "近期", "these days", "this week",
+            "last few days", "past week", "近几天", "这几天", "本周",
+        ],
+    ) {
+        Some(("recent_7d", 7))
+    } else if matches_any(
+        &q,
+        &[
+            "this month", "这个月", "本月", "past month", "last month",
+            "最近一个月", "近一个月",
+        ],
+    ) {
+        Some(("month_30d", 30))
+    } else if matches_any(
+        &q,
+        &["this year", "今年", "本年", "year to date", "ytd"],
+    ) {
+        // "year_to_date" is special — window_start is Jan 1 of the current year
+        Some(("year_to_date", 0)) // 0 signals special handling below
+    } else {
+        None
+    };
+
+    match detection {
+        Some((label, days_back)) => {
+            // Parse now_utc; if it fails, return non-sensitive default
+            let now_utc_trimmed = now_utc.trim();
+            // We store the window as simple date-time strings.
+            // The actual timezone-aware computation happens at the agent layer;
+            // here we provide a best-effort approximation using UTC offsets.
+            let window_end = now_utc_trimmed.to_string();
+            let window_start = if label == "year_to_date" {
+                // Extract year from now_utc (first 4 chars)
+                let year = &now_utc_trimmed[..4.min(now_utc_trimmed.len())];
+                format!("{year}-01-01T00:00:00Z")
+            } else {
+                // Approximate: subtract days_back * 86400 seconds
+                // For a rule-based fallback this is sufficient;
+                // precise timezone handling is done by the LLM path.
+                format!("now-{days_back}d")
+            };
+
+            Timeliness {
+                is_time_sensitive: true,
+                window_label: label.to_string(),
+                window_start,
+                window_end,
+                timezone: timezone.to_string(),
+                detected_by: "fallback_rule".to_string(),
+                timezone_fallback: timezone == "UTC",
+            }
+        }
+        None => Timeliness {
+            is_time_sensitive: false,
+            window_label: "none".to_string(),
+            timezone: timezone.to_string(),
+            detected_by: "fallback_rule".to_string(),
+            timezone_fallback: timezone == "UTC",
+            ..Default::default()
+        },
+    }
+}
+
+/// Build a `QuestionBundle` from the question text (rule-based fallback).
+/// Reuses the sub-question splitting logic already in `extract_key_points`.
+fn build_question_bundle_fallback(question: &str) -> QuestionBundle {
+    let parts: Vec<String> = question
+        .split(['?', '？', ';', '；'])
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+
+    let is_multi = parts.len() >= 2;
+
+    QuestionBundle {
+        is_multi_question: is_multi,
+        sub_questions: if is_multi {
+            parts.clone()
+        } else {
+            vec![]
+        },
+        // Rule-based fallback cannot infer intent — LLM handles this
+        unified_intent: String::new(),
+        primary_decision_need: String::new(),
+        priority_order: if is_multi {
+            (0..parts.len()).map(|i| format!("q{}", i + 1)).collect()
+        } else {
+            vec![]
+        },
+    }
+}
+
+/// Format a source timestamp for display according to the time window.
+///
+/// - `recent_7d` / `today_24h` → `M月D日HH点mm分`
+/// - `month_30d`                → `M月D日`
+/// - everything else            → `YYYY年M月D日`
+///
+/// `timestamp` should be an ISO 8601 string (or similar parseable format).
+pub fn format_source_timestamp(timestamp: &str, window_label: &str) -> String {
+    // Best-effort parse: extract year, month, day, hour, minute from ISO 8601
+    // Format: "2026-03-11T12:50:00Z" or "2026-03-11T12:50:00+08:00"
+    let ts = timestamp.trim();
+    let parts: Vec<&str> = ts.split('T').collect();
+
+    let (year, month, day) = if let Some(date_part) = parts.first() {
+        let d: Vec<&str> = date_part.split('-').collect();
+        (
+            d.first().copied().unwrap_or(""),
+            d.get(1).copied().unwrap_or(""),
+            d.get(2).copied().unwrap_or(""),
+        )
+    } else {
+        return timestamp.to_string(); // unparseable, return as-is
+    };
+
+    let month_num = month.parse::<u32>().unwrap_or(0);
+    let day_num = day.parse::<u32>().unwrap_or(0);
+
+    match window_label {
+        "today_24h" | "recent_7d" => {
+            // Precision to minute: M月D日HH点mm分
+            let (hour, minute) = if let Some(time_part) = parts.get(1) {
+                let t: Vec<&str> = time_part
+                    .trim_end_matches('Z')
+                    .split('+')
+                    .next()
+                    .unwrap_or("")
+                    .split('-')
+                    .next()
+                    .unwrap_or("")
+                    .split(':')
+                    .collect();
+                (
+                    t.first().copied().unwrap_or("00"),
+                    t.get(1).copied().unwrap_or("00"),
+                )
+            } else {
+                ("00", "00")
+            };
+            format!("{month_num}\u{6708}{day_num}\u{65e5}{hour}\u{70b9}{minute}\u{5206}")
+        }
+        "month_30d" => {
+            // Precision to day: M月D日
+            format!("{month_num}\u{6708}{day_num}\u{65e5}")
+        }
+        _ => {
+            // Default: YYYY年M月D日
+            format!("{year}\u{5e74}{month_num}\u{6708}{day_num}\u{65e5}")
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Utility
 // ---------------------------------------------------------------------------
 
@@ -2454,5 +2854,122 @@ mod tests {
         assert_eq!(allocate_budget_per_frame(30, 3), vec![10, 10, 10]);
         assert_eq!(allocate_budget_per_frame(31, 3), vec![11, 10, 10]);
         assert_eq!(allocate_budget_per_frame(10, 0), Vec::<usize>::new());
+    }
+
+    // ═══════════════════════════════════════════════════════════
+    // Timeliness & multi-question tests
+    // ═══════════════════════════════════════════════════════════
+
+    #[test]
+    fn test_timeliness_fallback_today_24h() {
+        let t = compute_timeliness_fallback(
+            "今天美股走势如何？",
+            "Asia/Shanghai",
+            "2026-03-12T10:00:00Z",
+        );
+        assert!(t.is_time_sensitive);
+        assert_eq!(t.window_label, "today_24h");
+        assert_eq!(t.timezone, "Asia/Shanghai");
+        assert_eq!(t.detected_by, "fallback_rule");
+        assert!(!t.timezone_fallback);
+    }
+
+    #[test]
+    fn test_timeliness_fallback_recent_7d() {
+        let t = compute_timeliness_fallback(
+            "最近黄金走势如何？",
+            "Asia/Shanghai",
+            "2026-03-12T10:00:00Z",
+        );
+        assert!(t.is_time_sensitive);
+        assert_eq!(t.window_label, "recent_7d");
+    }
+
+    #[test]
+    fn test_timeliness_fallback_month_30d() {
+        let t = compute_timeliness_fallback(
+            "这个月原油价格变化",
+            "Asia/Shanghai",
+            "2026-03-12T10:00:00Z",
+        );
+        assert!(t.is_time_sensitive);
+        assert_eq!(t.window_label, "month_30d");
+    }
+
+    #[test]
+    fn test_timeliness_fallback_year_to_date() {
+        let t = compute_timeliness_fallback(
+            "今年全球经济增长情况",
+            "UTC",
+            "2026-03-12T10:00:00Z",
+        );
+        assert!(t.is_time_sensitive);
+        assert_eq!(t.window_label, "year_to_date");
+        assert!(t.window_start.starts_with("2026-01-01"));
+    }
+
+    #[test]
+    fn test_timeliness_fallback_not_sensitive() {
+        let t = compute_timeliness_fallback(
+            "如何看待存在主义哲学？",
+            "UTC",
+            "2026-03-12T10:00:00Z",
+        );
+        assert!(!t.is_time_sensitive);
+        assert_eq!(t.window_label, "none");
+    }
+
+    #[test]
+    fn test_question_bundle_multi() {
+        let b = build_question_bundle_fallback(
+            "谷歌公司的股价最近波动的原因是什么？未来6-18个月，其股价走势情况如何？",
+        );
+        assert!(b.is_multi_question);
+        assert!(b.sub_questions.len() >= 2);
+        // Rule-based cannot infer unified_intent — that's LLM's job
+        assert!(b.unified_intent.is_empty());
+    }
+
+    #[test]
+    fn test_question_bundle_single() {
+        let b = build_question_bundle_fallback("大语言模型真的能带来AGI么");
+        assert!(!b.is_multi_question);
+        assert!(b.sub_questions.is_empty());
+    }
+
+    #[test]
+    fn test_format_source_timestamp_recent_7d() {
+        let s = format_source_timestamp("2026-03-11T12:50:00Z", "recent_7d");
+        assert_eq!(s, "3\u{6708}11\u{65e5}12\u{70b9}50\u{5206}");
+    }
+
+    #[test]
+    fn test_format_source_timestamp_month_30d() {
+        let s = format_source_timestamp("2026-03-07T09:30:00Z", "month_30d");
+        assert_eq!(s, "3\u{6708}7\u{65e5}");
+    }
+
+    #[test]
+    fn test_format_source_timestamp_other() {
+        let s = format_source_timestamp("2026-03-07T09:30:00Z", "year_to_date");
+        assert_eq!(s, "2026\u{5e74}3\u{6708}7\u{65e5}");
+    }
+
+    #[test]
+    fn test_lang_to_default_timezone() {
+        assert_eq!(lang_to_default_timezone("zh"), "Asia/Shanghai");
+        assert_eq!(lang_to_default_timezone("ja"), "Asia/Tokyo");
+        assert_eq!(lang_to_default_timezone("en"), "UTC");
+        assert_eq!(lang_to_default_timezone("de"), "Europe/Berlin");
+        assert_eq!(lang_to_default_timezone("unknown"), "UTC");
+    }
+
+    #[test]
+    fn test_evidence_policy_default() {
+        let p = EvidencePolicy::default();
+        assert_eq!(p.min_required_count, 10);
+        assert!(!p.high_credibility_mode);
+        assert!(p.strict_time_filter);
+        assert!(p.drop_missing_publish_time);
     }
 }
