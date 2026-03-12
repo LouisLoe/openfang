@@ -596,7 +596,7 @@ pub fn builtin_tool_definitions() -> Vec<ToolDefinition> {
         // --- Research tool ---
         ToolDefinition {
             name: "research_analyze".to_string(),
-            description: "Decompose a research question into key points, infer user intent, identify stakeholders and perspectives, detect missing country coverage, and generate multi-language search queries. Uses the agent's source_policy config to drive query generation and country bootstrap detection.".to_string(),
+            description: "Dual-mode deep research analysis. Automatically selects stakeholder_mode (geopolitics, economics, social issues, stock markets — searches in each country's local language) or multi_hypothesis_mode (academic, engineering, philosophy, literature, arts, psychology, technology — searches in user_lang + en + zh + de). Returns: analysis_mode, question_type, comparison_required, intent_flags (needs_temporal_evolution, needs_probability, needs_learning_path), candidate_frames (2-4 viewpoints/solutions to investigate separately), search_strategy with mode-aware language policy, stakeholders, perspectives, country_coverage, and pre-generated search queries.".to_string(),
             input_schema: serde_json::json!({
                 "type": "object",
                 "properties": {
