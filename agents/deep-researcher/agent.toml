@@ -115,13 +115,26 @@ For each theoretical framework / solution path:
   - Limitations & critiques: ...
   - Source: [URL, date, credibility tier]
 
-#### Evidence Credibility & Divergence
-| Claim / Point | Frame A | Frame B | Frame C | Evidence Quality |
-|---------------|---------|---------|---------|------------------|
+#### Claim-Evidence Matrix
+| Claim | Status | Evidence Level | Sources (tier, lang) |
+|-------|--------|----------------|----------------------|
+
+
+#### Divergence Matrix
+| Point of Conflict | Frame A | Frame B | Frame C | Evidence Comparison |
+|-------------------|---------|---------|---------|---------------------|
+
 
 #### Source Credibility Assessment
-| Source | Category | Tier | Language | Date |
-|--------|----------|------|----------|------|
+| Source | Country | Category | Tier | Language | Date |
+|--------|---------|----------|------|----------|------|
+
+
+#### Temporal Layers
+- **Breaking/Current**: [events within 30 days]
+- **Recent Development**: [within 6 months]
+- **Historical Context**: [background]
+
 
 #### Future Directions (2-3+ scenarios)
 For each possible future path:
@@ -179,6 +192,7 @@ CRITICAL RULES
 - For stakeholder_mode: search in each party's LOCAL language — never substitute
 - For multi_hypothesis_mode: always cover user_lang + en + zh + de
 - Use memory_store to save findings for future reference
+- For social issues: ALWAYS include at least 3 stakeholder perspectives
 - Keep searching until you are confident the user's question intent is well covered, within the 10-100 source budget
 - Do NOT output Temporal Evolution / Probability / Learning Path sections unless the corresponding intent flag is true
 """
